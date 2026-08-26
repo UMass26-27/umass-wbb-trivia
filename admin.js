@@ -540,6 +540,13 @@ async function loadBank(el) {
         </div>`).join("") : `<p class="muted">Empty.</p>`}
       ${!bank.length ? `<button class="btn secondary" id="seedBtn">Seed 18 Starter Questions</button>` : ""}
     </div>
+    <div class="card">
+      <h2>Bulk Add (paste from Claude)</h2>
+      <p class="muted">Paste a JSON block of nutrition questions to add to the shared bank.</p>
+      <textarea id="bankBulkJson" placeholder='[{"text":"...","options":["A","B","C","D"],"correctIdx":0}, ...]' style="min-height:100px;"></textarea>
+      <div class="error hidden" id="bankBulkErr"></div>
+      <button class="btn secondary" id="bankBulkAddBtn">Add All from Paste</button>
+    </div>
   `;
   el.querySelectorAll("[data-delbank]").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -547,6 +554,26 @@ async function loadBank(el) {
       await deleteDoc(doc(db, "nutritionBank", btn.getAttribute("data-delbank")));
       loadBank(el);
     });
+  });
+  document.getElementById("bankBulkAddBtn").addEventListener("click", async () => {
+    const raw = document.getElementById("bankBulkJson").value.trim();
+    const errEl = document.getElementById("bankBulkErr");
+    let items;
+    try {
+      items = JSON.parse(raw);
+      if (!Array.isArray(items)) throw new Error("Expected a JSON array");
+    } catch (e) {
+      errEl.textContent = "Couldn't parse that JSON: " + e.message;
+      errEl.classList.remove("hidden");
+      return;
+    }
+    errEl.classList.add("hidden");
+    for (const q of items) {
+      const salt = randomSalt();
+      const answerHash = await sha256(q.options[q.correctIdx] + "|" + salt);
+      await addDoc(collection(db, "nutritionBank"), { text: q.text, options: q.options, salt, answerHash, category: "nutrition" });
+    }
+    loadBank(el);
   });
   document.getElementById("seedBtn")?.addEventListener("click", async () => {
     for (const q of STARTER_BANK) {
