@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      // Keep in sync with ADMIN_EMAILS in firebase-config.js
+      return request.auth != null &&
+        request.auth.token.email in ['simonemorin@umass.edu', 'simonegmorin@gmail.com'];
+    }
+
+    match /games/{gameId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /questions/{questionId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
+      match /responses/{responseId} {
+        allow read: if true;
+        allow update, delete: if isAdmin();
+        allow create: if
+          get(/databases/$(database)/documents/games/$(gameId)).data.status == 'live' &&
+          request.resource.data.athleteName is string &&
+          request.resource.data.athleteName.size() > 0 &&
+          request.resource.data.athleteName.size() < 80 &&
+          request.resource.data.correctCount is int &&
+          request.resource.data.totalQuestions is int &&
+          request.resource.data.perfect is bool &&
+          request.resource.data.submittedAt == request.time;
+      }
+    }
+
+    match /nutritionBank/{questionId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

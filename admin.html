@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UMass WBB Trivia — Coach Admin</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  nav.tabs{ display:flex; gap:6px; max-width:520px; margin:0 auto; padding:0 16px; overflow-x:auto; }
+  nav.tabs button{ flex:0 0 auto; background:#efe9e2; color:var(--maroon-dark); border:none; border-radius:8px 8px 0 0; padding:8px 14px; font-weight:700; font-size:13px; }
+  nav.tabs button.active{ background:var(--card); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>UMass WBB Trivia — Admin</h1>
+  <div class="sub" id="whoami">Not signed in</div>
+</header>
+<main id="app">
+  <div class="card center"><div class="spinner"></div><div class="muted">Loading…</div></div>
+</main>
+<script type="module" src="admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>UMass WBB Trivia</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1>UMass Women's Basketball</h1>
+  <div class="sub" id="gameSub">Away Game Trivia</div>
+</header>
+<main id="app">
+  <div class="card center"><div class="spinner"></div><div class="muted">Loading quiz…</div></div>
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore, doc, getDoc, collection, query, orderBy, getDocs, addDoc,
+  serverTimestamp, onSnapshot, where
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+import { isCorrect, computeLeaderboard, gameLabel } from "./shared.js";
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const appEl = document.getElementById("app");
+const subEl = document.getElementById("gameSub");
+
+const params = new URLSearchParams(location.search);
+const gameId = params.get("g");
+const storageKey = gameId ? `umass-trivia-${gameId}` : null;
+
+function render(html) { appEl.innerHTML = html; }
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function main() {
+  if (!gameId) {
+    render(`<div class="card"><h2>No quiz linked</h2><p class="muted">Scan the QR code your coach gave you — this link is missing a game ID.</p></div>`);
+    return;
+  }
+
+  let gameSnap;
+  try {
+    gameSnap = await getDoc(doc(db, "games", gameId));
+  } catch (e) {
+    render(`<div class="card"><h2>Couldn't load quiz</h2><p class="error">${escapeHtml(e.message)}</p></div>`);
+    return;
+  }
+
+  if (!gameSnap.exists()) {
+    render(`<div class="card"><h2>Quiz not found</h2><p class="muted">Check the link or QR code with your coach.</p></div>`);
+    return;
+  }
+
+  const game = { id: gameSnap.id, ...gameSnap.data() };
+  subEl.textContent = gameLabel(game);
+  document.title = `Trivia — ${game.opponent}`;
+
+  const already = storageKey ? sessionStorage.getItem(storageKey) : null;
+
+  if (game.status === "draft") {
+    render(`<div class="card center"><h2>Not open yet</h2><p class="muted">Ask your coach to start the quiz, then refresh this page.</p></div>`);
+    return;
+  }
+
+  if (game.status === "closed" || already) {
+    if (already) {
+      render(`<div class="card center"><p class="muted">You already submitted as <strong>${escapeHtml(already)}</strong>.</p></div>` + leaderboardShell());
+    } else {
+      render(`<div class="card center"><h2>Quiz closed</h2><p class="muted">Here's how everyone did.</p></div>` + leaderboardShell());
+    }
+    watchLeaderboard(game, already);
+    return;
+  }
+
+  showNameEntry(game);
+}
+
+function leaderboardShell() {
+  return `<div class="card"><h2>Leaderboard</h2><div id="lb"><div class="muted center">Loading…</div></div></div>`;
+}
+
+function watchLeaderboard(game, highlightName) {
+  const q = query(collection(db, "games", game.id, "responses"));
+  onSnapshot(q, snap => {
+    const responses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const lbEl = document.getElementById("lb");
+    if (!lbEl) return;
+    if (!responses.length) {
+      lbEl.innerHTML = `<p class="muted center">No submissions yet.</p>`;
+      return;
+    }
+    const ranked = computeLeaderboard(responses, game);
+    lbEl.innerHTML = ranked.map((r, i) => `
+      <div class="rank-row">
+        <div class="rank-num">${i + 1}</div>
+        <div class="rank-name">${escapeHtml(r.athleteName)}${highlightName === r.athleteName ? " (you)" : ""}</div>
+        <div class="rank-meta">${r.correctCount}/${r.totalQuestions} correct${r.perfect ? " ⭐" : ""}</div>
+        <div class="rank-pts">${r.total} pts</div>
+      </div>`).join("");
+  }, err => {
+    const lbEl = document.getElementById("lb");
+    if (lbEl) lbEl.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  });
+}
+
+function showNameEntry(game) {
+  render(`
+    <div class="card">
+      <h2>Ready to play?</h2>
+      <p class="muted">Enter your name, then answer every question. First to submit a perfect score gets the most points — but every correct answer counts.</p>
+      <label for="nameInput">Your name</label>
+      <input type="text" id="nameInput" placeholder="e.g. Jane Smith" autocomplete="off">
+      <div class="error hidden" id="nameErr"></div>
+      <button class="btn" id="startBtn">Start Quiz</button>
+    </div>
+  `);
+  document.getElementById("startBtn").addEventListener("click", async () => {
+    const nameEl = document.getElementById("nameInput");
+    const name = nameEl.value.trim();
+    const errEl = document.getElementById("nameErr");
+    if (!name) {
+      errEl.textContent = "Enter your name to continue.";
+      errEl.classList.remove("hidden");
+      return;
+    }
+    errEl.classList.add("hidden");
+    startBtnDisable(true);
+    try {
+      const dupSnap = await getDocs(query(collection(db, "games", game.id, "responses"), where("athleteName", "==", name)));
+      if (!dupSnap.empty) {
+        if (storageKey) sessionStorage.setItem(storageKey, name);
+        render(`<div class="card center"><p class="muted"><strong>${escapeHtml(name)}</strong> already submitted for this game.</p></div>` + leaderboardShell());
+        watchLeaderboard(game, name);
+        return;
+      }
+      await loadQuestionsAndPlay(game, name);
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.classList.remove("hidden");
+      startBtnDisable(false);
+    }
+  });
+}
+
+function startBtnDisable(v) {
+  const b = document.getElementById("startBtn");
+  if (b) { b.disabled = v; b.textContent = v ? "Loading…" : "Start Quiz"; }
+}
+
+async function loadQuestionsAndPlay(game, athleteName) {
+  const qSnap = await getDocs(query(collection(db, "games", game.id, "questions"), orderBy("order")));
+  const questions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (!questions.length) {
+    render(`<div class="card"><h2>No questions yet</h2><p class="muted">Ask your coach — this quiz doesn't have questions loaded.</p></div>`);
+    return;
+  }
+  renderQuiz(game, athleteName, questions);
+}
+
+function renderQuiz(game, athleteName, questions) {
+  render(`
+    <div class="card">
+      <div class="progress" id="progress">0 / ${questions.length} answered</div>
+      <form id="quizForm">
+        ${questions.map((q, i) => `
+          <div class="qcard" style="margin-bottom:20px;">
+            <span class="badge ${q.category}">${q.category === "nutrition" ? "Nutrition" : "Location"}</span>
+            <div class="qtext">${i + 1}. ${escapeHtml(q.text)}</div>
+            ${q.options.map((opt, oi) => `
+              <label class="option" data-q="${i}">
+                <input type="radio" name="q${i}" value="${oi}">
+                <span>${escapeHtml(opt)}</span>
+              </label>
+            `).join("")}
+          </div>
+        `).join("")}
+        <button type="submit" class="btn" id="submitBtn" disabled>Answer all questions to submit</button>
+      </form>
+    </div>
+  `);
+
+  const form = document.getElementById("quizForm");
+  const submitBtn = document.getElementById("submitBtn");
+  const progressEl = document.getElementById("progress");
+
+  function updateProgress() {
+    const answered = questions.filter((_, i) => form.querySelector(`input[name="q${i}"]:checked`)).length;
+    progressEl.textContent = `${answered} / ${questions.length} answered`;
+    const done = answered === questions.length;
+    submitBtn.disabled = !done;
+    submitBtn.textContent = done ? "Submit Answers" : "Answer all questions to submit";
+    form.querySelectorAll(".option").forEach(optEl => {
+      const input = optEl.querySelector("input");
+      optEl.classList.toggle("selected", input.checked);
+    });
+  }
+
+  form.addEventListener("change", updateProgress);
+
+  form.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Submitting…";
+    try {
+      const selectedIdx = questions.map((_, i) => parseInt(form.querySelector(`input[name="q${i}"]:checked`).value, 10));
+      let correctCount = 0;
+      for (let i = 0; i < questions.length; i++) {
+        const q = questions[i];
+        const selectedText = q.options[selectedIdx[i]];
+        if (await isCorrect(q, selectedText)) correctCount++;
+      }
+      const perfect = correctCount === questions.length;
+      await addDoc(collection(db, "games", game.id, "responses"), {
+        athleteName,
+        answers: selectedIdx,
+        correctCount,
+        totalQuestions: questions.length,
+        perfect,
+        submittedAt: serverTimestamp()
+      });
+      if (storageKey) sessionStorage.setItem(storageKey, athleteName);
+      render(`
+        <div class="card center">
+          <h2>${perfect ? "Perfect score! 🎉" : "Submitted!"}</h2>
+          <p class="muted">${athleteName}: ${correctCount}/${questions.length} correct</p>
+        </div>
+        ${leaderboardShell()}
+      `);
+      watchLeaderboard(game, athleteName);
+    } catch (e) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Submit Answers";
+      alert("Couldn't submit: " + e.message);
+    }
+  });
+}
+
+main();
+</script>
+</body>
+</html>
