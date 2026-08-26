@@ -238,9 +238,50 @@ table.qlist td{ padding:8px 4px; border-bottom:1px solid #eee; vertical-align:to
   color:var(--muted);
   padding:0 20px 18px;
 }
+.print-duplicate{ display:none; }
+
 @media print{
+  @page{ size:letter; margin:0.35in; }
   header.top, nav, .no-print{ display:none !important; }
-  body{ background:#fff; }
+  body{ background:#fff; margin:0; }
+  main{ max-width:none; padding:0; margin:0; }
   .card{ box-shadow:none; border:1px solid #ccc; }
-  .poster{ margin:20px auto; }
+
+  .poster{
+    width:7.8in;
+    margin:0 auto;
+    page-break-inside:avoid;
+    border-width:2px;
+  }
+  .print-duplicate{
+    display:block;
+    margin-top:0.3in;
+    padding-top:0.25in;
+    border-top:2px dashed #999;
+    position:relative;
+  }
+  .print-duplicate::before{
+    content:"✂ cut here";
+    position:absolute;
+    top:-0.11in;
+    left:50%;
+    transform:translateX(-50%);
+    background:#fff;
+    padding:0 8px;
+    font-size:8px;
+    letter-spacing:.5px;
+    color:#999;
+    text-transform:uppercase;
+  }
+
+  .poster .court-strip{ height:0.28in; width:100%; }
+  .poster-header{ padding:0.12in 0.1in 0.04in; gap:0.14in; }
+  .poster-logo, .poster-logo.placeholder{ width:0.7in; height:0.7in; font-size:26px; }
+  .poster-vs{ width:0.32in; height:0.32in; font-size:11px; }
+  .poster-teams{ font-size:12px; padding:0.02in 0.1in 0; }
+  .poster-location{ font-size:9px; padding:0.02in 0.1in 0.06in; }
+  .poster-cta{ font-size:13px; margin:0.05in 0 0.03in; }
+  .poster-qr-box{ width:1.55in; padding:0.08in; margin:0 auto 0.08in; }
+  .poster-qr-box img{ width:1.4in; height:1.4in; }
+  .poster-sub{ font-size:8px; padding:0 0.15in 0.1in; }
 }

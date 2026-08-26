@@ -415,43 +415,51 @@ const COURT_STRIP_SVG = `
   </g>
 </svg>`;
 
+function posterInnerHtml(game, qrImg) {
+  const opponentLogo = game.opponentLogoUrl
+    ? `<img class="poster-logo" src="${escapeHtml(game.opponentLogoUrl)}" alt="${escapeHtml(game.opponent)} logo">`
+    : `<div class="poster-logo placeholder">🏀</div>`;
+  return `
+    ${COURT_STRIP_SVG}
+    <div class="poster-header">
+      <img class="poster-logo" src="assets/umass-logo.png" alt="UMass logo">
+      <div class="poster-vs">VS</div>
+      ${opponentLogo}
+    </div>
+    <div class="poster-teams">UMass Women's Basketball<span class="sep">vs</span>${escapeHtml(game.opponent)}</div>
+    <div class="poster-location">${escapeHtml(game.location || "")}${game.location ? " · " : ""}${fmtDate(game.date)}</div>
+    <h2 class="poster-cta">Scan to Play Trivia!</h2>
+    <div class="poster-qr-box"><img src="${qrImg}" alt="QR code"></div>
+    <div class="poster-sub">First perfect score wins big — every correct answer earns points.</div>
+    ${COURT_STRIP_SVG}
+  `;
+}
+
 function renderQrTab(game) {
   const tc = document.getElementById("tabContent");
   const link = `${QUIZ_BASE_URL}?g=${game.id}`;
   const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(link)}`;
-  const opponentLogo = game.opponentLogoUrl
-    ? `<img class="poster-logo" src="${escapeHtml(game.opponentLogoUrl)}" alt="${escapeHtml(game.opponent)} logo">`
-    : `<div class="poster-logo placeholder">🏀</div>`;
+  const inner = posterInnerHtml(game, qrImg);
 
   tc.innerHTML = `
-    <div class="card center">
+    <div class="card center no-print">
       <h2>${escapeHtml(gameLabel(game))} — Printable QR</h2>
-      ${game.status !== "live" ? `<p class="muted no-print" style="margin-bottom:10px;">Quiz status is <strong>${game.status}</strong> — set it Live before athletes scan, or they'll see a "not open yet" screen.</p>` : ""}
+      ${game.status !== "live" ? `<p class="muted" style="margin-bottom:10px;">Quiz status is <strong>${game.status}</strong> — set it Live before athletes scan, or they'll see a "not open yet" screen.</p>` : ""}
+      <div class="link-box">${escapeHtml(link)}</div>
+      <button class="btn" id="printBtn">Print (2-up, half-sheet)</button>
+      <p class="muted" style="margin-top:8px;">Prints two copies stacked on one page — cut along the dashed line to get two half-sheet posters, sized to tuck into snack bags.</p>
 
-      <div class="poster" id="posterEl">
-        ${COURT_STRIP_SVG}
-        <div class="poster-header">
-          <img class="poster-logo" src="assets/umass-logo.png" alt="UMass logo">
-          <div class="poster-vs">VS</div>
-          ${opponentLogo}
-        </div>
-        <div class="poster-teams">UMass Women's Basketball<span class="sep">vs</span>${escapeHtml(game.opponent)}</div>
-        <div class="poster-location">${escapeHtml(game.location || "")}${game.location ? " · " : ""}${fmtDate(game.date)}</div>
-        <h2 class="poster-cta">Scan to Play Trivia!</h2>
-        <div class="poster-qr-box"><img src="${qrImg}" alt="QR code"></div>
-        <div class="poster-sub">First perfect score wins big — every correct answer earns points.</div>
-        ${COURT_STRIP_SVG}
-      </div>
-
-      <div class="link-box no-print">${escapeHtml(link)}</div>
-      <button class="btn no-print" id="printBtn">Print</button>
-
-      <div class="card no-print" style="margin-top:16px; text-align:left;">
+      <div class="card" style="margin-top:16px; text-align:left;">
         <label>Opponent logo URL</label>
         <input type="text" id="logoUrlInput" value="${escapeHtml(game.opponentLogoUrl || "")}" placeholder="https://... link to their athletics logo">
         <button class="btn small secondary" id="saveLogoBtn" style="margin-top:8px;">Save Logo URL</button>
       </div>
     </div>
+
+    <div class="center">
+      <div class="poster" id="posterEl">${inner}</div>
+    </div>
+    <div class="poster print-duplicate">${inner}</div>
   `;
   document.getElementById("printBtn").addEventListener("click", () => window.print());
   document.getElementById("saveLogoBtn").addEventListener("click", async () => {
