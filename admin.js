@@ -387,7 +387,14 @@ function renderLeaderboardTab(game) {
         <div class="rank-name">${escapeHtml(r.athleteName)}</div>
         <div class="rank-meta">${r.correctCount}/${r.totalQuestions}${r.perfect ? " ⭐ perfect" : ""} · base ${r.basePoints} + bonus ${r.bonus}</div>
         <div class="rank-pts">${r.total} pts</div>
+        <button class="btn small danger no-print" data-delresp="${r.id}" style="margin-left:8px;">×</button>
       </div>`).join("");
+    el.querySelectorAll("[data-delresp]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Remove this submission from the leaderboard?")) return;
+        await deleteDoc(doc(db, "games", game.id, "responses", btn.getAttribute("data-delresp")));
+      });
+    });
   });
 }
 
