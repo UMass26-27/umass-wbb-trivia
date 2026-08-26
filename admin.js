@@ -79,25 +79,25 @@ async function loadGamesAndRender() {
 
 function renderShell() {
   appEl.innerHTML = `
-    <div class="card">
+    <div class="card no-print">
       <h2>Season Leaderboard</h2>
       <p class="muted">Total points per athlete, summed across every away game.</p>
       <button class="btn secondary" id="openSeasonBtn">View Season Standings</button>
     </div>
-    <div id="seasonPanel"></div>
-    <div class="card">
+    <div id="seasonPanel" class="no-print"></div>
+    <div class="card no-print">
       <h2>Away Games</h2>
       <div id="gamesList"></div>
       <button class="btn secondary" id="newGameBtn">+ New Game</button>
     </div>
-    <div id="newGameForm"></div>
+    <div id="newGameForm" class="no-print"></div>
     <div id="gameDetail"></div>
-    <div class="card">
+    <div class="card no-print">
       <h2>Nutrition Question Bank</h2>
       <p class="muted">Shared across every game — add once, reuse each trip.</p>
       <button class="btn secondary" id="openBankBtn">Manage Nutrition Bank</button>
     </div>
-    <div id="bankPanel"></div>
+    <div id="bankPanel" class="no-print"></div>
     <div class="card center no-print"><button class="btn secondary" id="signOutBtn2">Sign out</button></div>
   `;
 
@@ -217,10 +217,10 @@ function renderGameDetail() {
   if (!game) { container.innerHTML = ""; return; }
 
   container.innerHTML = `
-    <div class="card">
+    <div class="card no-print">
       <h2>${escapeHtml(gameLabel(game))} <span class="badge ${game.status}">${game.status}</span></h2>
       <p class="muted">${fmtDate(game.date)}</p>
-      <div class="row-actions no-print" style="margin-bottom:10px;">
+      <div class="row-actions" style="margin-bottom:10px;">
         ${game.status !== "live" ? `<button class="btn small" id="setLiveBtn">Set Live</button>` : ""}
         ${game.status !== "closed" ? `<button class="btn small secondary" id="closeBtn">Close Quiz</button>` : ""}
         ${game.status !== "draft" ? `<button class="btn small secondary" id="reopenBtn">Back to Draft</button>` : ""}
