@@ -80,6 +80,12 @@ async function loadGamesAndRender() {
 function renderShell() {
   appEl.innerHTML = `
     <div class="card">
+      <h2>Season Leaderboard</h2>
+      <p class="muted">Total points per athlete, summed across every away game.</p>
+      <button class="btn secondary" id="openSeasonBtn">View Season Standings</button>
+    </div>
+    <div id="seasonPanel"></div>
+    <div class="card">
       <h2>Away Games</h2>
       <div id="gamesList"></div>
       <button class="btn secondary" id="newGameBtn">+ New Game</button>
@@ -116,9 +122,49 @@ function renderShell() {
 
   document.getElementById("newGameBtn").addEventListener("click", renderNewGameForm);
   document.getElementById("openBankBtn").addEventListener("click", renderBankPanel);
+  document.getElementById("openSeasonBtn").addEventListener("click", renderSeasonPanel);
   document.getElementById("signOutBtn2").addEventListener("click", () => signOut(auth));
 
   if (activeGameId) renderGameDetail();
+}
+
+// ---------- Season leaderboard (cumulative across all games) ----------
+
+async function computeSeasonStandings() {
+  const totals = {};
+  for (const g of games) {
+    const respSnap = await getDocs(collection(db, "games", g.id, "responses"));
+    const responses = respSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!responses.length) continue;
+    const ranked = computeLeaderboard(responses, g);
+    ranked.forEach((r, i) => {
+      if (!totals[r.athleteName]) totals[r.athleteName] = { athleteName: r.athleteName, total: 0, gamesPlayed: 0, wins: 0 };
+      totals[r.athleteName].total += r.total;
+      totals[r.athleteName].gamesPlayed += 1;
+      if (i === 0) totals[r.athleteName].wins += 1;
+    });
+  }
+  return Object.values(totals).sort((a, b) => b.total - a.total);
+}
+
+async function renderSeasonPanel() {
+  const el = document.getElementById("seasonPanel");
+  el.innerHTML = `<div class="card center"><div class="spinner"></div></div>`;
+  const standings = await computeSeasonStandings();
+  el.innerHTML = `
+    <div class="card">
+      <h2>Season Standings</h2>
+      ${standings.length ? standings.map((s, i) => `
+        <div class="rank-row">
+          <div class="rank-num">${i + 1}</div>
+          <div class="rank-name">${escapeHtml(s.athleteName)}</div>
+          <div class="rank-meta">${s.gamesPlayed} game${s.gamesPlayed === 1 ? "" : "s"}${s.wins ? ` · ${s.wins} win${s.wins === 1 ? "" : "s"}` : ""}</div>
+          <div class="rank-pts">${s.total} pts</div>
+        </div>`).join("") : `<p class="muted">No submissions across any game yet.</p>`}
+      <button class="btn small secondary no-print" id="refreshSeasonBtn" style="margin-top:10px;">Refresh</button>
+    </div>
+  `;
+  document.getElementById("refreshSeasonBtn").addEventListener("click", renderSeasonPanel);
 }
 
 function renderNewGameForm() {
