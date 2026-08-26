@@ -239,6 +239,13 @@ async function renderQuestionsTab(game) {
       </tbody></table>` : `<p class="muted">No questions yet.</p>`}
     </div>
     <div class="card">
+      <h2>Bulk Add (paste from Claude)</h2>
+      <p class="muted">Paste the JSON block of questions Claude drafted for this game.</p>
+      <textarea id="bulkJson" placeholder='[{"category":"location","text":"...","options":["A","B","C","D"],"correctIdx":0}, ...]' style="min-height:100px;"></textarea>
+      <div class="error hidden" id="bulkErr"></div>
+      <button class="btn secondary" id="bulkAddBtn">Add All from Paste</button>
+    </div>
+    <div class="card">
       <h2>Add Question</h2>
       <label>Category</label>
       <select id="qCategory">
@@ -268,6 +275,26 @@ async function renderQuestionsTab(game) {
       await deleteDoc(doc(db, "games", game.id, "questions", btn.getAttribute("data-del")));
       renderQuestionsTab(game);
     });
+  });
+
+  document.getElementById("bulkAddBtn").addEventListener("click", async () => {
+    const raw = document.getElementById("bulkJson").value.trim();
+    const errEl = document.getElementById("bulkErr");
+    let items;
+    try {
+      items = JSON.parse(raw);
+      if (!Array.isArray(items)) throw new Error("Expected a JSON array");
+    } catch (e) {
+      errEl.textContent = "Couldn't parse that JSON: " + e.message;
+      errEl.classList.remove("hidden");
+      return;
+    }
+    errEl.classList.add("hidden");
+    let order = questions.length;
+    for (const item of items) {
+      await addQuestionToGame(game.id, item, order++);
+    }
+    renderQuestionsTab(game);
   });
 
   document.getElementById("addQBtn").addEventListener("click", async () => {
