@@ -224,7 +224,9 @@ function renderGameDetail() {
         ${game.status !== "live" ? `<button class="btn small" id="setLiveBtn">Set Live</button>` : ""}
         ${game.status !== "closed" ? `<button class="btn small secondary" id="closeBtn">Close Quiz</button>` : ""}
         ${game.status !== "draft" ? `<button class="btn small secondary" id="reopenBtn">Back to Draft</button>` : ""}
+        <button class="btn small secondary" id="editGameBtn">Edit</button>
       </div>
+      <div id="editGameForm"></div>
       <nav class="tabs no-print">
         <button data-tab="questions" class="${activeTab === "questions" ? "active" : ""}">Questions</button>
         <button data-tab="qr" class="${activeTab === "qr" ? "active" : ""}">QR Code</button>
@@ -245,6 +247,37 @@ function renderGameDetail() {
   document.getElementById("reopenBtn")?.addEventListener("click", async () => {
     await updateDoc(doc(db, "games", game.id), { status: "draft" });
     await loadGamesAndRender();
+  });
+  document.getElementById("editGameBtn").addEventListener("click", () => {
+    document.getElementById("editGameForm").innerHTML = `
+      <div class="card" style="text-align:left;">
+        <label>Opponent</label>
+        <input type="text" id="egOpponent" value="${escapeHtml(game.opponent)}">
+        <label>Location (city / school)</label>
+        <input type="text" id="egLocation" value="${escapeHtml(game.location || "")}">
+        <label>Game date</label>
+        <input type="date" id="egDate" value="${escapeHtml(game.date || "")}">
+        <div class="error hidden" id="egErr"></div>
+        <button class="btn small" id="egSave">Save Changes</button>
+        <button class="btn small secondary" id="egCancel">Cancel</button>
+      </div>
+    `;
+    document.getElementById("egCancel").addEventListener("click", () => {
+      document.getElementById("editGameForm").innerHTML = "";
+    });
+    document.getElementById("egSave").addEventListener("click", async () => {
+      const opponent = document.getElementById("egOpponent").value.trim();
+      const location_ = document.getElementById("egLocation").value.trim();
+      const date = document.getElementById("egDate").value;
+      const errEl = document.getElementById("egErr");
+      if (!opponent || !date) {
+        errEl.textContent = "Opponent and date are required.";
+        errEl.classList.remove("hidden");
+        return;
+      }
+      await updateDoc(doc(db, "games", game.id), { opponent, location: location_, date });
+      await loadGamesAndRender();
+    });
   });
 
   container.querySelectorAll(".tabs button").forEach(btn => {
