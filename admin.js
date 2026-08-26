@@ -175,6 +175,8 @@ function renderNewGameForm() {
       <input type="text" id="ngOpponent" placeholder="e.g. Richmond">
       <label>Location (city / school)</label>
       <input type="text" id="ngLocation" placeholder="e.g. Richmond, VA — University of Richmond">
+      <label>Opponent logo URL (optional, for the printout)</label>
+      <input type="text" id="ngLogo" placeholder="https://... link to their athletics logo">
       <label>Game date</label>
       <input type="date" id="ngDate">
       <label>Points per correct answer</label>
@@ -187,6 +189,7 @@ function renderNewGameForm() {
   document.getElementById("ngSave").addEventListener("click", async () => {
     const opponent = document.getElementById("ngOpponent").value.trim();
     const location_ = document.getElementById("ngLocation").value.trim();
+    const opponentLogoUrl = document.getElementById("ngLogo").value.trim();
     const date = document.getElementById("ngDate").value;
     const points = parseInt(document.getElementById("ngPoints").value, 10) || 10;
     const bonusTiers = document.getElementById("ngBonus").value.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
@@ -197,7 +200,7 @@ function renderNewGameForm() {
       return;
     }
     const ref = await addDoc(collection(db, "games"), {
-      opponent, location: location_, date, status: "draft",
+      opponent, location: location_, opponentLogoUrl, date, status: "draft",
       pointsPerCorrect: points, bonusTiers, createdAt: Date.now()
     });
     activeGameId = ref.id;
@@ -400,20 +403,63 @@ async function renderBankPicker(game, currentOrder) {
 
 // ---------- QR tab ----------
 
+const COURT_STRIP_SVG = `
+<svg class="court-strip" viewBox="0 0 800 90" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+  <rect x="0" y="0" width="800" height="90" fill="#5C0000"/>
+  <g stroke="#e8b923" stroke-width="2.5" fill="none" opacity="0.55">
+    <line x1="400" y1="6" x2="400" y2="84" />
+    <circle cx="400" cy="45" r="24" />
+    <path d="M6,16 A34,34 0 0,1 6,74" />
+    <path d="M794,16 A34,34 0 0,0 794,74" />
+    <rect x="6" y="6" width="788" height="78" rx="4" />
+  </g>
+</svg>`;
+
 function renderQrTab(game) {
   const tc = document.getElementById("tabContent");
   const link = `${QUIZ_BASE_URL}?g=${game.id}`;
-  const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(link)}`;
+  const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(link)}`;
+  const opponentLogo = game.opponentLogoUrl
+    ? `<img class="poster-logo" src="${escapeHtml(game.opponentLogoUrl)}" alt="${escapeHtml(game.opponent)} logo">`
+    : `<div class="poster-logo placeholder">🏀</div>`;
+
   tc.innerHTML = `
     <div class="card center">
-      <h2>${escapeHtml(gameLabel(game))} QR Code</h2>
-      <div class="qr-wrap"><img src="${qrImg}" alt="QR code"></div>
-      <div class="link-box">${escapeHtml(link)}</div>
+      <h2>${escapeHtml(gameLabel(game))} — Printable QR</h2>
+      ${game.status !== "live" ? `<p class="muted no-print" style="margin-bottom:10px;">Quiz status is <strong>${game.status}</strong> — set it Live before athletes scan, or they'll see a "not open yet" screen.</p>` : ""}
+
+      <div class="poster" id="posterEl">
+        ${COURT_STRIP_SVG}
+        <div class="poster-header">
+          <img class="poster-logo" src="assets/umass-logo.png" alt="UMass logo">
+          <div class="poster-vs">VS</div>
+          ${opponentLogo}
+        </div>
+        <div class="poster-teams">UMass Women's Basketball<span class="sep">vs</span>${escapeHtml(game.opponent)}</div>
+        <div class="poster-location">${escapeHtml(game.location || "")}${game.location ? " · " : ""}${fmtDate(game.date)}</div>
+        <h2 class="poster-cta">Scan to Play Trivia!</h2>
+        <div class="poster-qr-box"><img src="${qrImg}" alt="QR code"></div>
+        <div class="poster-sub">First perfect score wins big — every correct answer earns points.</div>
+        ${COURT_STRIP_SVG}
+      </div>
+
+      <div class="link-box no-print">${escapeHtml(link)}</div>
       <button class="btn no-print" id="printBtn">Print</button>
-      ${game.status !== "live" ? `<p class="muted" style="margin-top:10px;">Quiz status is <strong>${game.status}</strong> — set it Live before athletes scan, or they'll see a "not open yet" screen.</p>` : ""}
+
+      <div class="card no-print" style="margin-top:16px; text-align:left;">
+        <label>Opponent logo URL</label>
+        <input type="text" id="logoUrlInput" value="${escapeHtml(game.opponentLogoUrl || "")}" placeholder="https://... link to their athletics logo">
+        <button class="btn small secondary" id="saveLogoBtn" style="margin-top:8px;">Save Logo URL</button>
+      </div>
     </div>
   `;
   document.getElementById("printBtn").addEventListener("click", () => window.print());
+  document.getElementById("saveLogoBtn").addEventListener("click", async () => {
+    const url = document.getElementById("logoUrlInput").value.trim();
+    await updateDoc(doc(db, "games", game.id), { opponentLogoUrl: url });
+    game.opponentLogoUrl = url;
+    renderQrTab(game);
+  });
 }
 
 // ---------- Leaderboard tab ----------

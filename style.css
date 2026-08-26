@@ -164,8 +164,83 @@ table.qlist td{ padding:8px 4px; border-bottom:1px solid #eee; vertical-align:to
   word-break:break-all;
   margin-top:8px;
 }
+.poster{
+  background:#fff;
+  border:3px solid var(--maroon);
+  border-radius:16px;
+  padding:0;
+  max-width:420px;
+  margin:0 auto;
+  overflow:hidden;
+}
+.poster .court-strip{ display:block; width:100%; height:auto; }
+.poster-header{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:16px;
+  padding:18px 14px 6px;
+}
+.poster-logo{
+  width:78px; height:78px;
+  object-fit:contain;
+}
+.poster-logo.placeholder{
+  width:78px; height:78px;
+  border-radius:50%;
+  background:#efe9e2;
+  display:flex; align-items:center; justify-content:center;
+  font-size:32px;
+}
+.poster-vs{
+  font-weight:800;
+  font-size:15px;
+  color:var(--gold);
+  background:var(--maroon);
+  border-radius:50%;
+  width:34px; height:34px;
+  display:flex; align-items:center; justify-content:center;
+  flex:0 0 auto;
+}
+.poster-teams{
+  text-align:center;
+  font-weight:800;
+  font-size:15px;
+  color:var(--maroon-dark);
+  padding:2px 14px 0;
+}
+.poster-teams .sep{ color:var(--muted); font-weight:400; margin:0 6px; }
+.poster-location{
+  text-align:center;
+  font-size:12px;
+  color:var(--muted);
+  padding:2px 14px 10px;
+}
+.poster-cta{
+  text-align:center;
+  margin:6px 0 4px;
+  font-size:17px;
+  color:var(--maroon-dark);
+}
+.poster-qr-box{
+  background:#fff;
+  border:2px solid #eee;
+  border-radius:10px;
+  width:236px;
+  padding:10px;
+  margin:0 auto 10px;
+  text-align:center;
+}
+.poster-qr-box img{ width:216px; height:216px; display:block; margin:0 auto; }
+.poster-sub{
+  text-align:center;
+  font-size:12px;
+  color:var(--muted);
+  padding:0 20px 18px;
+}
 @media print{
   header.top, nav, .no-print{ display:none !important; }
   body{ background:#fff; }
   .card{ box-shadow:none; border:1px solid #ccc; }
+  .poster{ margin:20px auto; }
 }
