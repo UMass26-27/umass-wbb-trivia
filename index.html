@@ -24,7 +24,7 @@ import {
   serverTimestamp, onSnapshot, where
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
-import { isCorrect, computeLeaderboard, gameLabel } from "./shared.js";
+import { isCorrect, computeLeaderboard, gameLabel, generateWordSearch, wsLinePath, wsMatchWord } from "./shared.js";
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
@@ -157,16 +157,137 @@ function startBtnDisable(v) {
 }
 
 async function loadQuestionsAndPlay(game, athleteName) {
-  const qSnap = await getDocs(query(collection(db, "games", game.id, "questions"), orderBy("order")));
-  const questions = qSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  if (!questions.length) {
+  const format = game.quizFormat || "mc";
+  const needsMc = format === "mc" || format === "both";
+  const needsWs = format === "wordsearch" || format === "both";
+
+  const [questions, words] = await Promise.all([
+    needsMc ? getDocs(query(collection(db, "games", game.id, "questions"), orderBy("order"))).then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))) : Promise.resolve([]),
+    needsWs ? getDocs(collection(db, "games", game.id, "wordsearch")).then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))) : Promise.resolve([])
+  ]);
+
+  const hasMc = needsMc && questions.length > 0;
+  const hasWs = needsWs && words.length > 0;
+
+  if (!hasMc && !hasWs) {
     render(`<div class="card"><h2>No questions yet</h2><p class="muted">Ask your coach — this quiz doesn't have questions loaded.</p></div>`);
     return;
   }
-  renderQuiz(game, athleteName, questions);
+
+  const finalize = async result => {
+    const perfect = result.totalQuestions > 0 && result.correctCount === result.totalQuestions;
+    await addDoc(collection(db, "games", game.id, "responses"), {
+      athleteName,
+      correctCount: result.correctCount,
+      totalQuestions: result.totalQuestions,
+      perfect,
+      submittedAt: serverTimestamp()
+    });
+    if (storageKey) sessionStorage.setItem(storageKey, athleteName);
+    render(`
+      <div class="card center">
+        <h2>${perfect ? "Perfect score! 🎉" : "Submitted!"}</h2>
+        <p class="muted">${athleteName}: ${result.correctCount}/${result.totalQuestions} correct</p>
+      </div>
+      ${leaderboardShell()}
+    `);
+    watchLeaderboard(game, athleteName);
+  };
+
+  if (hasMc && hasWs) {
+    renderQuiz(game, questions, "Continue to Word Search", async mcResult => {
+      renderWordSearch(game, words, "Submit Answers", wsResult => finalize({
+        correctCount: mcResult.correctCount + wsResult.correctCount,
+        totalQuestions: mcResult.totalQuestions + wsResult.totalQuestions
+      }));
+    });
+  } else if (hasMc) {
+    renderQuiz(game, questions, "Submit Answers", finalize);
+  } else {
+    renderWordSearch(game, words, "Submit Answers", finalize);
+  }
 }
 
-function renderQuiz(game, athleteName, questions) {
+function renderWordSearch(game, words, buttonLabel, onComplete) {
+  let gridData;
+  try {
+    gridData = generateWordSearch(words.map(w => w.word));
+  } catch (e) {
+    render(`<div class="card"><h2>Word search couldn't be built</h2><p class="error">${escapeHtml(e.message)}</p><p class="muted">Ask your coach to check the word list.</p></div>`);
+    return;
+  }
+  const { grid, gridSize, placements } = gridData;
+  const found = new Set();
+  let startCell = null;
+
+  render(`
+    <div class="card">
+      <div class="progress" id="wsProgress">0 / ${words.length} found</div>
+      <div class="ws-grid" id="wsGrid" style="grid-template-columns:repeat(${gridSize}, 1fr);">
+        ${grid.map((row, r) => row.map((ch, c) => `<div class="ws-cell" data-r="${r}" data-c="${c}">${ch}</div>`).join("")).join("")}
+      </div>
+      <p class="muted" style="margin:10px 0 4px;">Tap the first letter, then the last letter of each hidden word.</p>
+      <div class="ws-clues" id="wsClues">
+        ${words.map(w => `
+          <div class="ws-clue-row" data-word="${escapeHtml(w.word)}">
+            <div class="ws-clue-check"></div>
+            <div>${escapeHtml(w.clue)}</div>
+          </div>`).join("")}
+      </div>
+      <button class="btn" id="wsSubmitBtn" disabled>Find all words to continue</button>
+    </div>
+  `);
+
+  const gridEl = document.getElementById("wsGrid");
+  const submitBtn = document.getElementById("wsSubmitBtn");
+
+  function cellEl(r, c) { return gridEl.querySelector(`[data-r="${r}"][data-c="${c}"]`); }
+
+  function updateProgress() {
+    document.getElementById("wsProgress").textContent = `${found.size} / ${words.length} found`;
+    const done = found.size === words.length;
+    submitBtn.disabled = !done;
+    submitBtn.textContent = done ? buttonLabel : "Find all words to continue";
+  }
+
+  gridEl.addEventListener("click", ev => {
+    const cell = ev.target.closest(".ws-cell");
+    if (!cell) return;
+    const r = parseInt(cell.getAttribute("data-r"), 10);
+    const c = parseInt(cell.getAttribute("data-c"), 10);
+
+    if (!startCell) {
+      startCell = { r, c };
+      cell.classList.add("selected");
+      return;
+    }
+
+    const path = wsLinePath(startCell.r, startCell.c, r, c);
+    const match = wsMatchWord(path, placements, found);
+    if (match) {
+      found.add(match);
+      path.forEach(([pr, pc]) => cellEl(pr, pc).classList.add("found"));
+      document.querySelector(`.ws-clue-row[data-word="${match}"]`)?.classList.add("found");
+      updateProgress();
+    }
+    cellEl(startCell.r, startCell.c).classList.remove("selected");
+    startCell = null;
+  });
+
+  submitBtn.addEventListener("click", async () => {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Loading…";
+    try {
+      await onComplete({ correctCount: found.size, totalQuestions: words.length });
+    } catch (e) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = buttonLabel;
+      alert("Couldn't continue: " + e.message);
+    }
+  });
+}
+
+function renderQuiz(game, questions, buttonLabel, onComplete) {
   render(`
     <div class="card">
       <div class="progress" id="progress">0 / ${questions.length} answered</div>
@@ -183,7 +304,7 @@ function renderQuiz(game, athleteName, questions) {
             `).join("")}
           </div>
         `).join("")}
-        <button type="submit" class="btn" id="submitBtn" disabled>Answer all questions to submit</button>
+        <button type="submit" class="btn" id="submitBtn" disabled>Answer all questions to continue</button>
       </form>
     </div>
   `);
@@ -197,7 +318,7 @@ function renderQuiz(game, athleteName, questions) {
     progressEl.textContent = `${answered} / ${questions.length} answered`;
     const done = answered === questions.length;
     submitBtn.disabled = !done;
-    submitBtn.textContent = done ? "Submit Answers" : "Answer all questions to submit";
+    submitBtn.textContent = done ? buttonLabel : "Answer all questions to continue";
     form.querySelectorAll(".option").forEach(optEl => {
       const input = optEl.querySelector("input");
       optEl.classList.toggle("selected", input.checked);
@@ -209,7 +330,7 @@ function renderQuiz(game, athleteName, questions) {
   form.addEventListener("submit", async ev => {
     ev.preventDefault();
     submitBtn.disabled = true;
-    submitBtn.textContent = "Submitting…";
+    submitBtn.textContent = "Loading…";
     try {
       const selectedIdx = questions.map((_, i) => parseInt(form.querySelector(`input[name="q${i}"]:checked`).value, 10));
       let correctCount = 0;
@@ -218,28 +339,11 @@ function renderQuiz(game, athleteName, questions) {
         const selectedText = q.options[selectedIdx[i]];
         if (await isCorrect(q, selectedText)) correctCount++;
       }
-      const perfect = correctCount === questions.length;
-      await addDoc(collection(db, "games", game.id, "responses"), {
-        athleteName,
-        answers: selectedIdx,
-        correctCount,
-        totalQuestions: questions.length,
-        perfect,
-        submittedAt: serverTimestamp()
-      });
-      if (storageKey) sessionStorage.setItem(storageKey, athleteName);
-      render(`
-        <div class="card center">
-          <h2>${perfect ? "Perfect score! 🎉" : "Submitted!"}</h2>
-          <p class="muted">${athleteName}: ${correctCount}/${questions.length} correct</p>
-        </div>
-        ${leaderboardShell()}
-      `);
-      watchLeaderboard(game, athleteName);
+      await onComplete({ correctCount, totalQuestions: questions.length });
     } catch (e) {
       submitBtn.disabled = false;
-      submitBtn.textContent = "Submit Answers";
-      alert("Couldn't submit: " + e.message);
+      submitBtn.textContent = buttonLabel;
+      alert("Couldn't continue: " + e.message);
     }
   });
 }

@@ -63,3 +63,83 @@ export function fmtDate(dateStr) {
 export function gameLabel(game) {
   return `${game.opponent}${game.location ? " — " + game.location : ""}`;
 }
+
+// ---------- Word search ----------
+
+const WS_DIRS = [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+export function normalizeWsWord(word) {
+  return String(word || "").toUpperCase().replace(/[^A-Z]/g, "");
+}
+
+// Places every word into a square letter grid (random position + one of 8
+// directions per word, longest words first so they have the most room),
+// then fills empty cells with random letters. Throws if a word can't be
+// placed after many attempts — the caller should shorten words or drop one.
+export function generateWordSearch(words, size) {
+  const clean = words.map(normalizeWsWord).filter(Boolean);
+  const gridSize = size || Math.max(12, Math.min(16, Math.max(...clean.map(w => w.length)) + 3));
+  const grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(null));
+  const placements = [];
+
+  const sorted = [...clean].sort((a, b) => b.length - a.length);
+  for (const word of sorted) {
+    let placed = false;
+    for (let attempt = 0; attempt < 300 && !placed; attempt++) {
+      const dir = WS_DIRS[Math.floor(Math.random() * WS_DIRS.length)];
+      const r0 = Math.floor(Math.random() * gridSize);
+      const c0 = Math.floor(Math.random() * gridSize);
+      const cells = [];
+      let ok = true;
+      for (let i = 0; i < word.length; i++) {
+        const r = r0 + dir[0] * i;
+        const c = c0 + dir[1] * i;
+        if (r < 0 || r >= gridSize || c < 0 || c >= gridSize) { ok = false; break; }
+        const existing = grid[r][c];
+        if (existing && existing !== word[i]) { ok = false; break; }
+        cells.push([r, c]);
+      }
+      if (ok) {
+        cells.forEach(([r, c], i) => { grid[r][c] = word[i]; });
+        placements.push({ word, cells });
+        placed = true;
+      }
+    }
+    if (!placed) throw new Error(`Couldn't fit "${word}" in the grid — try shorter words or fewer of them.`);
+  }
+
+  for (let r = 0; r < gridSize; r++) {
+    for (let c = 0; c < gridSize; c++) {
+      if (!grid[r][c]) grid[r][c] = String.fromCharCode(65 + Math.floor(Math.random() * 26));
+    }
+  }
+
+  return { grid, gridSize, placements };
+}
+
+// Returns the straight-line path of [row,col] cells between two points
+// (inclusive), or null if the two points don't form a horizontal, vertical,
+// or diagonal line.
+export function wsLinePath(r1, c1, r2, c2) {
+  const dr = Math.sign(r2 - r1);
+  const dc = Math.sign(c2 - c1);
+  if (r1 !== r2 && c1 !== c2 && Math.abs(r2 - r1) !== Math.abs(c2 - c1)) return null;
+  const len = Math.max(Math.abs(r2 - r1), Math.abs(c2 - c1)) + 1;
+  const path = [];
+  for (let i = 0; i < len; i++) path.push([r1 + dr * i, c1 + dc * i]);
+  return path;
+}
+
+// Checks a selected cell path against the placed words, in either direction.
+// Returns the matched word string, or null.
+export function wsMatchWord(path, placements, alreadyFound) {
+  if (!path) return null;
+  for (const p of placements) {
+    if (alreadyFound && alreadyFound.has(p.word)) continue;
+    if (p.cells.length !== path.length) continue;
+    const forward = p.cells.every((c, i) => c[0] === path[i][0] && c[1] === path[i][1]);
+    const backward = p.cells.every((c, i) => c[0] === path[path.length - 1 - i][0] && c[1] === path[path.length - 1 - i][1]);
+    if (forward || backward) return p.word;
+  }
+  return null;
+}

@@ -7,7 +7,7 @@ import {
   getDoc, getDocs, query, orderBy, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, ADMIN_EMAILS } from "./firebase-config.js";
-import { sha256, randomSalt, computeLeaderboard, fmtDate, gameLabel } from "./shared.js";
+import { sha256, randomSalt, computeLeaderboard, fmtDate, gameLabel, normalizeWsWord, generateWordSearch } from "./shared.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -179,6 +179,12 @@ function renderNewGameForm() {
       <input type="text" id="ngLogo" placeholder="https://... link to their athletics logo">
       <label>Game date</label>
       <input type="date" id="ngDate">
+      <label>Quiz format</label>
+      <select id="ngFormat">
+        <option value="mc">Multiple choice only</option>
+        <option value="wordsearch">Word search only</option>
+        <option value="both">Both (multiple choice, then word search)</option>
+      </select>
       <label>Points per correct answer</label>
       <input type="number" id="ngPoints" value="10" min="1">
       <label>Perfect-score speed bonus tiers (comma-separated, 1st place first)</label>
@@ -191,6 +197,7 @@ function renderNewGameForm() {
     const location_ = document.getElementById("ngLocation").value.trim();
     const opponentLogoUrl = document.getElementById("ngLogo").value.trim();
     const date = document.getElementById("ngDate").value;
+    const quizFormat = document.getElementById("ngFormat").value;
     const points = parseInt(document.getElementById("ngPoints").value, 10) || 10;
     const bonusTiers = document.getElementById("ngBonus").value.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
     const errEl = document.getElementById("ngErr");
@@ -200,7 +207,7 @@ function renderNewGameForm() {
       return;
     }
     const ref = await addDoc(collection(db, "games"), {
-      opponent, location: location_, opponentLogoUrl, date, status: "draft",
+      opponent, location: location_, opponentLogoUrl, date, status: "draft", quizFormat,
       pointsPerCorrect: points, bonusTiers, createdAt: Date.now()
     });
     activeGameId = ref.id;
@@ -229,6 +236,7 @@ function renderGameDetail() {
       <div id="editGameForm"></div>
       <nav class="tabs no-print">
         <button data-tab="questions" class="${activeTab === "questions" ? "active" : ""}">Questions</button>
+        <button data-tab="wordsearch" class="${activeTab === "wordsearch" ? "active" : ""}">Word Search</button>
         <button data-tab="qr" class="${activeTab === "qr" ? "active" : ""}">QR Code</button>
         <button data-tab="leaderboard" class="${activeTab === "leaderboard" ? "active" : ""}">Leaderboard</button>
       </nav>
@@ -257,6 +265,12 @@ function renderGameDetail() {
         <input type="text" id="egLocation" value="${escapeHtml(game.location || "")}">
         <label>Game date</label>
         <input type="date" id="egDate" value="${escapeHtml(game.date || "")}">
+        <label>Quiz format</label>
+        <select id="egFormat">
+          <option value="mc" ${(!game.quizFormat || game.quizFormat === "mc") ? "selected" : ""}>Multiple choice only</option>
+          <option value="wordsearch" ${game.quizFormat === "wordsearch" ? "selected" : ""}>Word search only</option>
+          <option value="both" ${game.quizFormat === "both" ? "selected" : ""}>Both (multiple choice, then word search)</option>
+        </select>
         <div class="error hidden" id="egErr"></div>
         <button class="btn small" id="egSave">Save Changes</button>
         <button class="btn small secondary" id="egCancel">Cancel</button>
@@ -269,13 +283,14 @@ function renderGameDetail() {
       const opponent = document.getElementById("egOpponent").value.trim();
       const location_ = document.getElementById("egLocation").value.trim();
       const date = document.getElementById("egDate").value;
+      const quizFormat = document.getElementById("egFormat").value;
       const errEl = document.getElementById("egErr");
       if (!opponent || !date) {
         errEl.textContent = "Opponent and date are required.";
         errEl.classList.remove("hidden");
         return;
       }
-      await updateDoc(doc(db, "games", game.id), { opponent, location: location_, date });
+      await updateDoc(doc(db, "games", game.id), { opponent, location: location_, date, quizFormat });
       await loadGamesAndRender();
     });
   });
@@ -290,6 +305,7 @@ function renderGameDetail() {
   if (unsubLeaderboard) { unsubLeaderboard(); unsubLeaderboard = null; }
 
   if (activeTab === "questions") renderQuestionsTab(game);
+  else if (activeTab === "wordsearch") renderWordSearchTab(game);
   else if (activeTab === "qr") renderQrTab(game);
   else if (activeTab === "leaderboard") renderLeaderboardTab(game);
 }
@@ -431,6 +447,108 @@ async function renderBankPicker(game, currentOrder) {
       });
     }
     renderQuestionsTab(game);
+  });
+}
+
+// ---------- Word search tab ----------
+
+async function renderWordSearchTab(game) {
+  const tc = document.getElementById("tabContent");
+  tc.innerHTML = `<div class="card center"><div class="spinner"></div></div>`;
+  const wsSnap = await getDocs(collection(db, "games", game.id, "wordsearch"));
+  const words = wsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  tc.innerHTML = `
+    <div class="card">
+      <h2>Word Search Words (${words.length})</h2>
+      <p class="muted">Only used if this game's quiz format includes a word search. Words should be single tokens (letters only — no spaces or punctuation).</p>
+      ${words.length ? `<table class="qlist"><tbody>
+        ${words.map(w => `
+          <tr>
+            <td><strong>${escapeHtml(w.word)}</strong><br><span class="muted">${escapeHtml(w.clue)}</span></td>
+            <td class="row-actions"><button class="btn small danger" data-delws="${w.id}">Delete</button></td>
+          </tr>`).join("")}
+      </tbody></table>` : `<p class="muted">No words yet.</p>`}
+    </div>
+    <div class="card">
+      <h2>Bulk Add (paste from Claude)</h2>
+      <textarea id="wsBulkJson" placeholder='[{"word":"FRIARS","clue":"Providence College mascot nickname"}, ...]' style="min-height:100px;"></textarea>
+      <div class="error hidden" id="wsBulkErr"></div>
+      <button class="btn secondary" id="wsBulkAddBtn">Add All from Paste</button>
+    </div>
+    <div class="card">
+      <h2>Add One Word</h2>
+      <label>Word (letters only)</label>
+      <input type="text" id="wsWord" placeholder="e.g. FRIARS">
+      <label>Clue</label>
+      <input type="text" id="wsClue" placeholder="e.g. Providence College's mascot nickname">
+      <div class="error hidden" id="wsAddErr"></div>
+      <button class="btn small secondary" id="wsAddBtn">Add Word</button>
+    </div>
+    <div class="card">
+      <h2>Preview Grid</h2>
+      <p class="muted">Generates a sample grid with the current word list, so you can check everything fits before game day. Each athlete gets their own freshly generated grid — this is just a preview.</p>
+      <button class="btn small secondary" id="wsPreviewBtn">Generate Preview</button>
+      <div id="wsPreviewOut" style="margin-top:10px;"></div>
+    </div>
+  `;
+
+  tc.querySelectorAll("[data-delws]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this word?")) return;
+      await deleteDoc(doc(db, "games", game.id, "wordsearch", btn.getAttribute("data-delws")));
+      renderWordSearchTab(game);
+    });
+  });
+
+  document.getElementById("wsBulkAddBtn").addEventListener("click", async () => {
+    const raw = document.getElementById("wsBulkJson").value.trim();
+    const errEl = document.getElementById("wsBulkErr");
+    let items;
+    try {
+      items = JSON.parse(raw);
+      if (!Array.isArray(items)) throw new Error("Expected a JSON array");
+    } catch (e) {
+      errEl.textContent = "Couldn't parse that JSON: " + e.message;
+      errEl.classList.remove("hidden");
+      return;
+    }
+    errEl.classList.add("hidden");
+    for (const item of items) {
+      const word = normalizeWsWord(item.word);
+      if (!word) continue;
+      await addDoc(collection(db, "games", game.id, "wordsearch"), { word, clue: item.clue || "" });
+    }
+    renderWordSearchTab(game);
+  });
+
+  document.getElementById("wsAddBtn").addEventListener("click", async () => {
+    const word = normalizeWsWord(document.getElementById("wsWord").value);
+    const clue = document.getElementById("wsClue").value.trim();
+    const errEl = document.getElementById("wsAddErr");
+    if (!word || !clue) {
+      errEl.textContent = "Both a word and a clue are required.";
+      errEl.classList.remove("hidden");
+      return;
+    }
+    errEl.classList.add("hidden");
+    await addDoc(collection(db, "games", game.id, "wordsearch"), { word, clue });
+    renderWordSearchTab(game);
+  });
+
+  document.getElementById("wsPreviewBtn").addEventListener("click", () => {
+    const out = document.getElementById("wsPreviewOut");
+    if (!words.length) { out.innerHTML = `<p class="muted">Add some words first.</p>`; return; }
+    try {
+      const { grid, gridSize } = generateWordSearch(words.map(w => w.word));
+      out.innerHTML = `
+        <div class="ws-grid" style="grid-template-columns:repeat(${gridSize}, 1fr); max-width:${gridSize * 26}px;">
+          ${grid.map(row => row.map(ch => `<div class="ws-cell">${ch}</div>`).join("")).join("")}
+        </div>
+      `;
+    } catch (e) {
+      out.innerHTML = `<p class="error">${escapeHtml(e.message)}</p>`;
+    }
   });
 }
 

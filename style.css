@@ -164,6 +164,45 @@ table.qlist td{ padding:8px 4px; border-bottom:1px solid #eee; vertical-align:to
   word-break:break-all;
   margin-top:8px;
 }
+.ws-grid{
+  display:grid;
+  gap:2px;
+  margin:0 auto;
+  user-select:none;
+  -webkit-user-select:none;
+  touch-action:none;
+}
+.ws-cell{
+  aspect-ratio:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#f4f1ee;
+  border-radius:3px;
+  font-weight:700;
+  font-size:13px;
+  color:var(--text);
+  cursor:pointer;
+}
+.ws-cell.selected{ background:#f0d98c; }
+.ws-cell.found{ background:var(--maroon); color:#fff; }
+.ws-clues{ margin-top:14px; }
+.ws-clue-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 0;
+  border-bottom:1px solid #eee;
+  font-size:13px;
+}
+.ws-clue-row.found{ color:var(--muted); text-decoration:line-through; }
+.ws-clue-check{
+  width:18px; height:18px;
+  border-radius:50%;
+  border:2px solid #ccc;
+  flex:0 0 auto;
+}
+.ws-clue-row.found .ws-clue-check{ background:var(--good); border-color:var(--good); }
 .poster{
   background:#fff;
   border:3px solid var(--maroon);

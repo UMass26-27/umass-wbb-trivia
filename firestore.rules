@@ -18,6 +18,11 @@ service cloud.firestore {
         allow write: if isAdmin();
       }
 
+      match /wordsearch/{wordId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
       match /responses/{responseId} {
         allow read: if true;
         allow update, delete: if isAdmin();
