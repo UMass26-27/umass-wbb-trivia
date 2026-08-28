@@ -231,7 +231,7 @@ function renderWordSearch(game, words, buttonLabel, onComplete) {
         ${words.map(w => `
           <div class="ws-clue-row" data-word="${escapeHtml(w.word)}">
             <div class="ws-clue-check"></div>
-            <div>${escapeHtml(w.clue)}</div>
+            <div><span class="badge ${w.category === "nutrition" ? "nutrition" : "location"}">${w.category === "nutrition" ? "Nutrition" : "Location"}</span> ${escapeHtml(w.clue)}</div>
           </div>`).join("")}
       </div>
       <button class="btn" id="wsSubmitBtn" disabled>Find all words to continue</button>

@@ -98,6 +98,12 @@ function renderShell() {
       <button class="btn secondary" id="openBankBtn">Manage Nutrition Bank</button>
     </div>
     <div id="bankPanel" class="no-print"></div>
+    <div class="card no-print">
+      <h2>Nutrition Word Bank</h2>
+      <p class="muted">Single-word nutrition terms for word search rounds — shared across every game.</p>
+      <button class="btn secondary" id="openWsBankBtn">Manage Nutrition Word Bank</button>
+    </div>
+    <div id="wsBankPanel" class="no-print"></div>
     <div class="card center no-print"><button class="btn secondary" id="signOutBtn2">Sign out</button></div>
   `;
 
@@ -122,6 +128,7 @@ function renderShell() {
 
   document.getElementById("newGameBtn").addEventListener("click", renderNewGameForm);
   document.getElementById("openBankBtn").addEventListener("click", renderBankPanel);
+  document.getElementById("openWsBankBtn").addEventListener("click", renderWsBankPanel);
   document.getElementById("openSeasonBtn").addEventListener("click", renderSeasonPanel);
   document.getElementById("signOutBtn2").addEventListener("click", () => signOut(auth));
 
@@ -465,25 +472,37 @@ async function renderWordSearchTab(game) {
       ${words.length ? `<table class="qlist"><tbody>
         ${words.map(w => `
           <tr>
-            <td><strong>${escapeHtml(w.word)}</strong><br><span class="muted">${escapeHtml(w.clue)}</span></td>
+            <td>
+              <span class="badge ${w.category === "nutrition" ? "nutrition" : "location"}">${w.category === "nutrition" ? "Nutrition" : "Location"}</span><br>
+              <strong>${escapeHtml(w.word)}</strong><br><span class="muted">${escapeHtml(w.clue)}</span>
+            </td>
             <td class="row-actions"><button class="btn small danger" data-delws="${w.id}">Delete</button></td>
           </tr>`).join("")}
       </tbody></table>` : `<p class="muted">No words yet.</p>`}
     </div>
     <div class="card">
       <h2>Bulk Add (paste from Claude)</h2>
-      <textarea id="wsBulkJson" placeholder='[{"word":"FRIARS","clue":"Providence College mascot nickname"}, ...]' style="min-height:100px;"></textarea>
+      <textarea id="wsBulkJson" placeholder='[{"word":"FRIARS","clue":"Providence College mascot nickname","category":"location"}, ...]' style="min-height:100px;"></textarea>
       <div class="error hidden" id="wsBulkErr"></div>
       <button class="btn secondary" id="wsBulkAddBtn">Add All from Paste</button>
     </div>
     <div class="card">
       <h2>Add One Word</h2>
+      <label>Category</label>
+      <select id="wsCategory">
+        <option value="location">Location / School</option>
+        <option value="nutrition">Sports Nutrition</option>
+      </select>
       <label>Word (letters only)</label>
       <input type="text" id="wsWord" placeholder="e.g. FRIARS">
       <label>Clue</label>
       <input type="text" id="wsClue" placeholder="e.g. Providence College's mascot nickname">
       <div class="error hidden" id="wsAddErr"></div>
       <button class="btn small secondary" id="wsAddBtn">Add Word</button>
+    </div>
+    <div class="card">
+      <h2>Add from Nutrition Word Bank</h2>
+      <div id="wsBankPicker" class="muted">Loading bank…</div>
     </div>
     <div class="card">
       <h2>Preview Grid</h2>
@@ -517,7 +536,7 @@ async function renderWordSearchTab(game) {
     for (const item of items) {
       const word = normalizeWsWord(item.word);
       if (!word) continue;
-      await addDoc(collection(db, "games", game.id, "wordsearch"), { word, clue: item.clue || "" });
+      await addDoc(collection(db, "games", game.id, "wordsearch"), { word, clue: item.clue || "", category: item.category === "nutrition" ? "nutrition" : "location" });
     }
     renderWordSearchTab(game);
   });
@@ -525,6 +544,7 @@ async function renderWordSearchTab(game) {
   document.getElementById("wsAddBtn").addEventListener("click", async () => {
     const word = normalizeWsWord(document.getElementById("wsWord").value);
     const clue = document.getElementById("wsClue").value.trim();
+    const category = document.getElementById("wsCategory").value;
     const errEl = document.getElementById("wsAddErr");
     if (!word || !clue) {
       errEl.textContent = "Both a word and a clue are required.";
@@ -532,9 +552,11 @@ async function renderWordSearchTab(game) {
       return;
     }
     errEl.classList.add("hidden");
-    await addDoc(collection(db, "games", game.id, "wordsearch"), { word, clue });
+    await addDoc(collection(db, "games", game.id, "wordsearch"), { word, clue, category });
     renderWordSearchTab(game);
   });
+
+  renderWsBankPicker(game, words);
 
   document.getElementById("wsPreviewBtn").addEventListener("click", () => {
     const out = document.getElementById("wsPreviewOut");
@@ -549,6 +571,34 @@ async function renderWordSearchTab(game) {
     } catch (e) {
       out.innerHTML = `<p class="error">${escapeHtml(e.message)}</p>`;
     }
+  });
+}
+
+async function renderWsBankPicker(game, existingWords) {
+  const el = document.getElementById("wsBankPicker");
+  if (!el) return;
+  const snap = await getDocs(collection(db, "nutritionWordBank"));
+  const bank = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (!bank.length) {
+    el.innerHTML = `<p class="muted">Bank is empty. Seed it from the "Nutrition Word Bank" panel below the games list.</p>`;
+    return;
+  }
+  const existingSet = new Set(existingWords.map(w => w.word));
+  el.innerHTML = `
+    ${bank.map(w => `
+      <label class="option">
+        <input type="checkbox" value="${w.id}" class="wsBankCheck" ${existingSet.has(w.word) ? "disabled checked" : ""}>
+        <span>${escapeHtml(w.word)} — ${escapeHtml(w.clue)}</span>
+      </label>`).join("")}
+    <button class="btn small secondary" id="wsAddBankSelected" style="margin-top:8px;">Add Selected to Game</button>
+  `;
+  document.getElementById("wsAddBankSelected").addEventListener("click", async () => {
+    const checked = Array.from(el.querySelectorAll(".wsBankCheck:checked:not(:disabled)")).map(c => c.value);
+    for (const id of checked) {
+      const w = bank.find(b => b.id === id);
+      await addDoc(collection(db, "games", game.id, "wordsearch"), { word: w.word, clue: w.clue, category: "nutrition" });
+    }
+    renderWordSearchTab(game);
   });
 }
 
@@ -733,5 +783,81 @@ async function loadBank(el) {
       await addDoc(collection(db, "nutritionBank"), { text: q.text, options: q.options, salt, answerHash, category: "nutrition" });
     }
     loadBank(el);
+  });
+}
+
+// ---------- Nutrition word bank (for word search rounds) ----------
+
+const STARTER_WS_BANK = [
+  { word: "PROTEIN", clue: "Nutrient essential for repairing and building muscle" },
+  { word: "HYDRATION", clue: "Staying adequately fueled with fluids" },
+  { word: "ELECTROLYTES", clue: "Minerals like sodium and potassium lost through sweat" },
+  { word: "CARBOHYDRATES", clue: "The body's main fuel source for high-intensity exercise" },
+  { word: "RECOVERY", clue: "The post-workout window when the body restocks energy and repairs muscle" },
+  { word: "IRON", clue: "Mineral commonly low in female athletes, aids oxygen transport in blood" },
+  { word: "CALCIUM", clue: "Mineral crucial for bone health" },
+  { word: "GLYCOGEN", clue: "Stored form of carbohydrate energy in muscles" },
+  { word: "SODIUM", clue: "Electrolyte lost through sweat, important to replace during long workouts" },
+  { word: "FUELING", clue: "Eating enough to support training and competition demands" }
+];
+
+function renderWsBankPanel() {
+  const el = document.getElementById("wsBankPanel");
+  el.innerHTML = `<div class="card center"><div class="spinner"></div></div>`;
+  loadWsBank(el);
+}
+
+async function loadWsBank(el) {
+  const snap = await getDocs(collection(db, "nutritionWordBank"));
+  const bank = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  el.innerHTML = `
+    <div class="card">
+      <h2>Nutrition Word Bank (${bank.length})</h2>
+      ${bank.length ? bank.map(w => `
+        <div class="rank-row">
+          <div style="flex:1;"><strong>${escapeHtml(w.word)}</strong> — ${escapeHtml(w.clue)}</div>
+          <button class="btn small danger" data-delwsbank="${w.id}">Delete</button>
+        </div>`).join("") : `<p class="muted">Empty.</p>`}
+      ${!bank.length ? `<button class="btn secondary" id="wsSeedBtn">Seed 10 Starter Words</button>` : ""}
+    </div>
+    <div class="card">
+      <h2>Bulk Add (paste from Claude)</h2>
+      <textarea id="wsBankBulkJson" placeholder='[{"word":"PROTEIN","clue":"..."}, ...]' style="min-height:100px;"></textarea>
+      <div class="error hidden" id="wsBankBulkErr"></div>
+      <button class="btn secondary" id="wsBankBulkAddBtn">Add All from Paste</button>
+    </div>
+  `;
+  el.querySelectorAll("[data-delwsbank]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Delete this word?")) return;
+      await deleteDoc(doc(db, "nutritionWordBank", btn.getAttribute("data-delwsbank")));
+      loadWsBank(el);
+    });
+  });
+  document.getElementById("wsBankBulkAddBtn").addEventListener("click", async () => {
+    const raw = document.getElementById("wsBankBulkJson").value.trim();
+    const errEl = document.getElementById("wsBankBulkErr");
+    let items;
+    try {
+      items = JSON.parse(raw);
+      if (!Array.isArray(items)) throw new Error("Expected a JSON array");
+    } catch (e) {
+      errEl.textContent = "Couldn't parse that JSON: " + e.message;
+      errEl.classList.remove("hidden");
+      return;
+    }
+    errEl.classList.add("hidden");
+    for (const w of items) {
+      const word = normalizeWsWord(w.word);
+      if (!word) continue;
+      await addDoc(collection(db, "nutritionWordBank"), { word, clue: w.clue || "" });
+    }
+    loadWsBank(el);
+  });
+  document.getElementById("wsSeedBtn")?.addEventListener("click", async () => {
+    for (const w of STARTER_WS_BANK) {
+      await addDoc(collection(db, "nutritionWordBank"), { word: w.word, clue: w.clue });
+    }
+    loadWsBank(el);
   });
 }
