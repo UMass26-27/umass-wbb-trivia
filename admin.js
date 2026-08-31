@@ -239,6 +239,7 @@ function renderGameDetail() {
         ${game.status !== "closed" ? `<button class="btn small secondary" id="closeBtn">Close Quiz</button>` : ""}
         ${game.status !== "draft" ? `<button class="btn small secondary" id="reopenBtn">Back to Draft</button>` : ""}
         <button class="btn small secondary" id="editGameBtn">Edit</button>
+        <button class="btn small danger" id="deleteGameBtn">Delete</button>
       </div>
       <div id="editGameForm"></div>
       <nav class="tabs no-print">
@@ -261,6 +262,21 @@ function renderGameDetail() {
   });
   document.getElementById("reopenBtn")?.addEventListener("click", async () => {
     await updateDoc(doc(db, "games", game.id), { status: "draft" });
+    await loadGamesAndRender();
+  });
+  document.getElementById("deleteGameBtn").addEventListener("click", async () => {
+    const typed = prompt(`This permanently deletes "${game.opponent}" and all its questions, word search words, and athlete responses. This can't be undone.\n\nType the opponent name exactly to confirm:`);
+    if (typed === null) return;
+    if (typed !== game.opponent) {
+      alert("That didn't match the opponent name — nothing was deleted.");
+      return;
+    }
+    for (const sub of ["questions", "wordsearch", "responses"]) {
+      const snap = await getDocs(collection(db, "games", game.id, sub));
+      await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+    }
+    await deleteDoc(doc(db, "games", game.id));
+    activeGameId = null;
     await loadGamesAndRender();
   });
   document.getElementById("editGameBtn").addEventListener("click", () => {
